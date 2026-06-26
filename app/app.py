@@ -1,0 +1,55 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.v1.router import v1_router
+from app.core.config import settings
+from app.core.logger import get_logger
+
+logger = get_logger("text-extraction")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Starting up Text Extraction Service 🔥")
+    yield
+    logger.info("Shutting down Text Extraction Service")
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title=settings.APP_TITLE,
+        description=settings.APP_DESCRIPTION,
+        version=settings.APP_VERSION,
+        docs_url=f"{settings.API_BASE_PATH}/docs",
+        redoc_url=f"{settings.API_BASE_PATH}/redoc",
+        openapi_url=f"{settings.API_BASE_PATH}/openapi.json",
+        swagger_ui_parameters={
+            "displayRequestDuration": True,
+            "displayOperationId": True,
+        },
+        lifespan=lifespan,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        response = await call_next(request)
+        logger.info(f"{request.method} {request.url.path} - {response.status_code}")
+        return response
+
+    app.include_router(v1_router, prefix=settings.API_BASE_PATH)
+
+    @app.get(f"{settings.API_BASE_PATH}/health", tags=["Health"])
+    def health():
+        return {"status": "ok", "version": settings.APP_VERSION}
+
+    return app
