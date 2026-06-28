@@ -37,6 +37,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
+        allow_origin_regex=r"(https://.*\.kapturecrm\.com|https://.*\.vitos\.ai|https://.*\.kapdesk\.com)",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
