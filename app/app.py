@@ -25,8 +25,8 @@ def create_app() -> FastAPI:
         docs_url=f"{settings.API_BASE_PATH}/docs",
         redoc_url=f"{settings.API_BASE_PATH}/redoc",
         openapi_url=f"{settings.API_BASE_PATH}/openapi.json",
-        root_path="/text-extraction",       # ← add this
-        root_path_in_servers=False,          # ← add this
+        root_path="/text-extraction",
+        root_path_in_servers=True,
         swagger_ui_parameters={
             "displayRequestDuration": True,
             "displayOperationId": True,
