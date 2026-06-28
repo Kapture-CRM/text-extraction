@@ -1,12 +1,12 @@
 # gunicorn.conf.py
 
-bind = "127.0.0.1:8000"
+bind = "127.0.0.1:8500"
 workers = 1
 worker_class = "uvicorn.workers.UvicornWorker"
 timeout = 120
 keepalive = 5
 
 # Logging
-accesslog = "/var/log/your-service/access.log"
-errorlog = "/var/log/your-service/error.log"
+accesslog = "/var/log/text-extraction/access.log"
+errorlog = "/var/log/text-extraction/error.log"
 loglevel = "info"
