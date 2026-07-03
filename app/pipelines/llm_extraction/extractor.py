@@ -1,4 +1,5 @@
 import json
+import time
 from pathlib import Path
 
 import fitz  # pymupdf
@@ -7,6 +8,9 @@ from google.genai import types
 from google.oauth2 import service_account
 
 from app.core.config import settings
+from app.core.logger import get_logger
+
+logger = get_logger("llm-extraction")
 
 # ---------------------------------------------------------------------------
 # Quantity-like field names — used by validation to find the qty field
@@ -25,6 +29,7 @@ _client = None
 def get_client() -> genai.Client:
     global _client
     if _client is None:
+        start = time.perf_counter()
         creds_info = json.loads(settings.GOOGLE_APPLICATION_CREDENTIALS_JSON)
         credentials = service_account.Credentials.from_service_account_info(
             creds_info,
@@ -36,6 +41,7 @@ def get_client() -> genai.Client:
             location=settings.GCP_LOCATION,
             credentials=credentials,
         )
+        logger.info(f"Gemini client initialized in {time.perf_counter() - start:.2f}s")
     return _client
 
 
@@ -184,6 +190,7 @@ async def extract_from_image_async(path: str) -> tuple[list, str]:
     img_bytes = Path(path).read_bytes()
     mime_type = "image/png" if path.lower().endswith(".png") else "image/jpeg"
 
+    start = time.perf_counter()
     response = await client.aio.models.generate_content(
         model=settings.GEMINI_MODEL,
         contents=[
@@ -192,6 +199,7 @@ async def extract_from_image_async(path: str) -> tuple[list, str]:
         ],
         config=GEMINI_CONFIG,
     )
+    logger.info(f"Gemini vision call took {time.perf_counter() - start:.2f}s")
     return _parse_response(response), "vision"
 
 
@@ -200,12 +208,17 @@ async def extract_from_pdf_async(path: str) -> tuple[list, str]:
         return await extract_pdf_via_vision_async(path)
 
     client = get_client()
+    parse_start = time.perf_counter()
     prompt = build_pdf_prompt(extract_pdf_text(path))
+    logger.info(f"PDF text extraction took {time.perf_counter() - parse_start:.2f}s")
+
+    start = time.perf_counter()
     response = await client.aio.models.generate_content(
         model=settings.GEMINI_MODEL,
         contents=[prompt],
         config=GEMINI_CONFIG,
     )
+    logger.info(f"Gemini pdf_text call took {time.perf_counter() - start:.2f}s")
     return _parse_response(response), "pdf_text"
 
 
@@ -213,11 +226,14 @@ async def extract_pdf_via_vision_async(path: str) -> tuple[list, str]:
     import asyncio
 
     client = get_client()
+    render_start = time.perf_counter()
     doc = fitz.open(path)
     pages = [page.get_pixmap(matrix=fitz.Matrix(2, 2)).tobytes("png") for page in doc]
     doc.close()
+    logger.info(f"PDF page rendering ({len(pages)} pages) took {time.perf_counter() - render_start:.2f}s")
 
     async def _extract_page(img_bytes: bytes):
+        start = time.perf_counter()
         response = await client.aio.models.generate_content(
             model=settings.GEMINI_MODEL,
             contents=[
@@ -226,6 +242,7 @@ async def extract_pdf_via_vision_async(path: str) -> tuple[list, str]:
             ],
             config=GEMINI_CONFIG,
         )
+        logger.info(f"Gemini pdf_vision page call took {time.perf_counter() - start:.2f}s")
         return _parse_response(response)
 
     results = await asyncio.gather(*[_extract_page(b) for b in pages])
