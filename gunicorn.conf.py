@@ -5,6 +5,7 @@ workers = 1
 worker_class = "uvicorn.workers.UvicornWorker"
 timeout = 120
 keepalive = 5
+raw_env = ["FORWARDED_ALLOW_IPS=*"]
 
 # Logging
 accesslog = "/var/log/text-extraction/access.log"

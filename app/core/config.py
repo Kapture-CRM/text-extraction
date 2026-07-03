@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     AUTH_USERNAME: str
     AUTH_PASSWORD: str
 
+    # Gemini / Vertex AI
+    GOOGLE_APPLICATION_CREDENTIALS_JSON: str
+    GEMINI_MODEL: str = "gemini-3.5-flash"
+    GCP_PROJECT_ID: str
+    GCP_LOCATION: str = "global"
+
     class Config:
         env_file = ".env"
         extra = "ignore"
