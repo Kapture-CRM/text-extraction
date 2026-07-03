@@ -33,7 +33,7 @@ def get_client() -> genai.Client:
         _client = genai.Client(
             vertexai=True,
             project=settings.GCP_PROJECT_ID,
-            location="global",
+            location=settings.GCP_LOCATION,
             credentials=credentials,
         )
     return _client
