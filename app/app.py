@@ -1,3 +1,4 @@
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -45,8 +46,22 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def log_requests(request: Request, call_next):
-        response = await call_next(request)
-        logger.info(f"{request.method} {request.url.path} - {response.status_code}")
+        client_host = request.client.host if request.client else "unknown"
+        query = f"?{request.url.query}" if request.url.query else ""
+        start = time.perf_counter()
+        logger.info(f"--> {request.method} {request.url.path}{query} from {client_host}")
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception(
+                f"Unhandled error for {request.method} {request.url.path} "
+                f"after {time.perf_counter() - start:.3f}s"
+            )
+            raise
+        logger.info(
+            f"<-- {request.method} {request.url.path} - {response.status_code} "
+            f"({time.perf_counter() - start:.3f}s)"
+        )
         return response
 
     app.include_router(v1_router, prefix=settings.API_BASE_PATH)

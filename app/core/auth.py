@@ -6,6 +6,9 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
+from app.core.logger import get_logger
+
+logger = get_logger("auth")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer()
@@ -38,7 +41,9 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Security(bearer
         payload = jwt.decode(credentials.credentials, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
+            logger.warning("JWT payload missing 'sub' claim")
             raise credentials_error
         return username
-    except JWTError:
+    except JWTError as e:
+        logger.warning(f"JWT validation failed: {e}")
         raise credentials_error

@@ -1,6 +1,12 @@
 import re
+import time
+
 import pdfplumber
 from rank_bm25 import BM25Okapi
+
+from app.core.logger import get_logger
+
+logger = get_logger("pdf-extraction")
 
 SECTION_PATTERN = re.compile(
     r'\b([IVXLCDM]+\s*[\.\.\·]\s+[A-Z][A-Za-z\s\(\)]{4,60})',
@@ -67,10 +73,20 @@ def extract_intra_heading(raw_table):
     return "", raw_table
 
 
-def get_all_tables_with_metadata(pdf_path: str) -> list[dict]:
+def get_all_tables_with_metadata(pdf_path: str, max_pages: int | None = None) -> list[dict]:
+    start = time.perf_counter()
     all_tables = []
     with pdfplumber.open(pdf_path) as pdf:
-        for page_num, page in enumerate(pdf.pages, start=1):
+        total_pages = len(pdf.pages)
+        pages = pdf.pages[:max_pages] if max_pages else pdf.pages
+        if max_pages and max_pages < total_pages:
+            logger.info(
+                f"Opened PDF with {total_pages} page(s): {pdf_path}, "
+                f"limiting extraction to first {max_pages} page(s)"
+            )
+        else:
+            logger.info(f"Opened PDF with {total_pages} page(s): {pdf_path}")
+        for page_num, page in enumerate(pages, start=1):
             raw_tables = page.extract_tables() or []
             table_objs = page.find_tables()
             prev_bottom = -999
@@ -93,6 +109,12 @@ def get_all_tables_with_metadata(pdf_path: str) -> list[dict]:
                     "gap_from_prev": gap,
                 })
                 prev_bottom = bbox[3]
+            if raw_tables:
+                logger.info(f"Page {page_num}: found {len(raw_tables)} table(s)")
+    logger.info(
+        f"Extracted {len(all_tables)} table(s) from {pdf_path} "
+        f"in {time.perf_counter() - start:.2f}s"
+    )
     return all_tables
 
 
@@ -179,9 +201,10 @@ def table_to_labeled_text(merged_rows, heading=""):
     return "\n".join(lines)
 
 
-def build_section_store(pdf_path: str) -> list[dict]:
-    all_tables = get_all_tables_with_metadata(pdf_path)
+def build_section_store(pdf_path: str, max_pages: int | None = None) -> list[dict]:
+    all_tables = get_all_tables_with_metadata(pdf_path, max_pages=max_pages)
     sections = group_by_section(all_tables)
+    logger.info(f"Grouped {len(all_tables)} table(s) into {len(sections)} section(s)")
     store = []
     for sec_id, sec in enumerate(sections, start=1):
         merged_rows = []
@@ -189,6 +212,7 @@ def build_section_store(pdf_path: str) -> list[dict]:
             merged_rows.extend(t['raw_rows'])
         content = table_to_labeled_text(merged_rows, heading=sec['heading'])
         if not content:
+            logger.info(f"Section {sec_id} ({sec['heading'] or 'untitled'}) produced no content, skipping")
             continue
         pages = list(dict.fromkeys(t['page_num'] for t in sec['tables']))
         store.append({
@@ -198,6 +222,7 @@ def build_section_store(pdf_path: str) -> list[dict]:
             'pages': pages,
             'tokens': len(content) // 4,
         })
+    logger.info(f"Built section store with {len(store)} section(s) from {pdf_path}")
     return store
 
 
@@ -209,6 +234,7 @@ def tokenize(text: str) -> list[str]:
 
 
 def build_bm25_index(store: list[dict]):
+    start = time.perf_counter()
     corpus = []
     heading_token_sets = []
     for sec in store:
@@ -218,6 +244,9 @@ def build_bm25_index(store: list[dict]):
         corpus.append(doc_tokens)
         heading_token_sets.append(set(heading_tokens))
     bm25 = BM25Okapi(corpus, k1=BM25_K1, b=BM25_B)
+    logger.info(
+        f"Built BM25 index over {len(store)} section(s) in {time.perf_counter() - start:.3f}s"
+    )
     return bm25, heading_token_sets
 
 
@@ -231,6 +260,7 @@ def bm25_search(
 ) -> list[dict]:
     query_tokens = tokenize(query)
     if not query_tokens:
+        logger.info(f"Query {query!r} produced no usable tokens after stopword filtering")
         return []
 
     raw_scores = bm25.get_scores(query_tokens)
@@ -248,4 +278,8 @@ def bm25_search(
     for final_score, raw_score, heading_hit, sec in boosted[:top_k]:
         results.append({**sec, '_score': final_score, '_heading_hit': heading_hit})
 
+    logger.info(
+        f"Query {query!r}: {len(boosted)} section(s) above min_score={min_score}, "
+        f"returning top {len(results)} (top_k={top_k})"
+    )
     return results
