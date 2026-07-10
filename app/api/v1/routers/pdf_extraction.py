@@ -148,8 +148,8 @@ async def extract_context(
         )
 
     context = "\n\n".join(
-        f"[Rank {rank} | Section: {s['heading']} | Pages: {', '.join(str(p) for p in s['pages'])}]\n{s['content']}"
-        for rank, s in enumerate(results, start=1)
+        f"[Section: {s['heading']} | Pages: {', '.join(str(p) for p in s['pages'])}]\n{s['content']}"
+        for s in results
     )
 
     logger.info(
@@ -164,7 +164,6 @@ async def extract_context(
         "total_sections_indexed": len(section_store),
         "matches": [
             {
-                "rank": rank,
                 "id": s["id"],
                 "heading": s["heading"],
                 "pages": s["pages"],
@@ -173,7 +172,7 @@ async def extract_context(
                 "tokens": s["tokens"],
                 "content": s["content"],
             }
-            for rank, s in enumerate(results, start=1)
+            for s in results
         ],
         "context": context,
     }
