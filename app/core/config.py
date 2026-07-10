@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     API_BASE_PATH: str = "/api/v1"
 
+    # Logging
+    LOG_DIR: str = "logs"
+    LOG_RETENTION_DAYS: int = 14
+
     # JWT
     JWT_SECRET: str
     JWT_ALGORITHM: str
