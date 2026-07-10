@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     LOG_DIR: str = "logs"
     LOG_RETENTION_DAYS: int = 14
 
+    # PDF extraction debug output
+    SAVE_EXTRACTED_DATA: bool = False
+    EXTRACTED_DATA_DIR: str = "extracted_data"
+
     # JWT
     JWT_SECRET: str
     JWT_ALGORITHM: str

@@ -1,11 +1,15 @@
+import json
 import os
+import re
 import tempfile
 import time
+import uuid
 
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
+from app.core.config import settings
 from app.core.logger import get_logger
 from app.pipelines.pdf_extraction.extractor import (
     build_bm25_index,
@@ -16,6 +20,21 @@ from app.pipelines.pdf_extraction.extractor import (
 logger = get_logger("pdf-extraction")
 
 router = APIRouter(prefix="/pdf", tags=["PDF Extraction"])
+
+
+def _save_section_store(section_store: list[dict], source_name: str) -> str:
+    os.makedirs(settings.EXTRACTED_DATA_DIR, exist_ok=True)
+    safe_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", os.path.basename(source_name or "document")).strip("_") or "document"
+    filename = f"{safe_stem}_{uuid.uuid4().hex[:8]}.json"
+    out_path = os.path.join(settings.EXTRACTED_DATA_DIR, filename)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {"source": source_name, "total_sections": len(section_store), "sections": section_store},
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
+    return out_path
 
 
 @router.post("/extract", summary="Search a PDF document by keyword")
@@ -87,6 +106,13 @@ async def extract_context(
                 status_code=422,
                 detail="No table-based sections found in the PDF.",
             )
+
+        if settings.SAVE_EXTRACTED_DATA:
+            try:
+                saved_path = _save_section_store(section_store, source_name)
+                logger.info(f"Saved extracted section store to {saved_path}")
+            except OSError as e:
+                logger.warning(f"Failed to save extracted section store: {e}")
 
         logger.info("Step 3/4: building BM25 index and searching")
         bm25_index, heading_token_sets = build_bm25_index(section_store)

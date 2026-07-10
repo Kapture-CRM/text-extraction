@@ -36,6 +36,7 @@ logs/
 # Uploaded / temp files
 *.pdf
 tmp/
+extracted_data/
 
 CLAUDE.md
 .env
