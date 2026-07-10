@@ -73,20 +73,12 @@ def extract_intra_heading(raw_table):
     return "", raw_table
 
 
-def get_all_tables_with_metadata(pdf_path: str, max_pages: int | None = None) -> list[dict]:
+def get_all_tables_with_metadata(pdf_path: str) -> list[dict]:
     start = time.perf_counter()
     all_tables = []
     with pdfplumber.open(pdf_path) as pdf:
-        total_pages = len(pdf.pages)
-        pages = pdf.pages[:max_pages] if max_pages else pdf.pages
-        if max_pages and max_pages < total_pages:
-            logger.info(
-                f"Opened PDF with {total_pages} page(s): {pdf_path}, "
-                f"limiting extraction to first {max_pages} page(s)"
-            )
-        else:
-            logger.info(f"Opened PDF with {total_pages} page(s): {pdf_path}")
-        for page_num, page in enumerate(pages, start=1):
+        logger.info(f"Opened PDF with {len(pdf.pages)} page(s): {pdf_path}")
+        for page_num, page in enumerate(pdf.pages, start=1):
             raw_tables = page.extract_tables() or []
             table_objs = page.find_tables()
             prev_bottom = -999
@@ -201,8 +193,8 @@ def table_to_labeled_text(merged_rows, heading=""):
     return "\n".join(lines)
 
 
-def build_section_store(pdf_path: str, max_pages: int | None = None) -> list[dict]:
-    all_tables = get_all_tables_with_metadata(pdf_path, max_pages=max_pages)
+def build_section_store(pdf_path: str) -> list[dict]:
+    all_tables = get_all_tables_with_metadata(pdf_path)
     sections = group_by_section(all_tables)
     logger.info(f"Grouped {len(all_tables)} table(s) into {len(sections)} section(s)")
     store = []
