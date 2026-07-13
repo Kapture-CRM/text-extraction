@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     GCP_PROJECT_ID: str
     GCP_LOCATION: str = "global"
 
+    # OpenAI (semantic search embeddings)
+    OPENAI_API_KEY: str = ""
+    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+
     class Config:
         env_file = ".env"
         extra = "ignore"
