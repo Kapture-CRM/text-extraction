@@ -73,9 +73,51 @@ def extract_intra_heading(raw_table):
     return "", raw_table
 
 
+def _word_in_bbox(word, bbox):
+    x0, top, x1, bottom = bbox
+    return word['x0'] >= x0 - 1 and word['x1'] <= x1 + 1 and word['top'] >= top - 1 and word['bottom'] <= bottom + 1
+
+
+def extract_paragraph_text(page, table_bboxes: list[tuple], line_gap_px: float = 8.0) -> str:
+    words = page.extract_words()
+    non_table_words = [
+        w for w in words
+        if not any(_word_in_bbox(w, bbox) for bbox in table_bboxes)
+    ]
+    if not non_table_words:
+        return ""
+
+    lines: dict[float, list] = {}
+    for w in sorted(non_table_words, key=lambda w: (round(w['top']), w['x0'])):
+        key = round(w['top'])
+        lines.setdefault(key, []).append(w)
+
+    sorted_tops = sorted(lines.keys())
+    paragraphs = []
+    current_para: list[str] = []
+    prev_bottom = None
+    for top in sorted_tops:
+        line_words = sorted(lines[top], key=lambda w: w['x0'])
+        line_text = " ".join(w['text'] for w in line_words).strip()
+        if not line_text:
+            continue
+        line_bottom = max(w['bottom'] for w in line_words)
+        if prev_bottom is not None and (top - prev_bottom) > line_gap_px:
+            if current_para:
+                paragraphs.append(" ".join(current_para))
+                current_para = []
+        current_para.append(line_text)
+        prev_bottom = line_bottom
+    if current_para:
+        paragraphs.append(" ".join(current_para))
+
+    return "\n\n".join(p for p in paragraphs if p)
+
+
 def get_all_tables_with_metadata(pdf_path: str, max_pages: int | None = None) -> list[dict]:
     start = time.perf_counter()
     all_tables = []
+    paragraph_pages = []
     with pdfplumber.open(pdf_path) as pdf:
         total_pages = len(pdf.pages)
         pages = pdf.pages[:max_pages] if max_pages else pdf.pages
@@ -90,8 +132,10 @@ def get_all_tables_with_metadata(pdf_path: str, max_pages: int | None = None) ->
             raw_tables = page.extract_tables() or []
             table_objs = page.find_tables()
             prev_bottom = -999
+            table_bboxes = []
             for t_idx, (raw, tobj) in enumerate(zip(raw_tables, table_objs)):
                 bbox = tobj.bbox
+                table_bboxes.append(bbox)
                 gap = bbox[1] - prev_bottom
                 above_heading = extract_heading_above(page, bbox)
                 intra_heading, raw_stripped = extract_intra_heading(raw)
@@ -111,11 +155,15 @@ def get_all_tables_with_metadata(pdf_path: str, max_pages: int | None = None) ->
                 prev_bottom = bbox[3]
             if raw_tables:
                 logger.info(f"Page {page_num}: found {len(raw_tables)} table(s)")
+
+            paragraph_text = extract_paragraph_text(page, table_bboxes)
+            if paragraph_text:
+                paragraph_pages.append({"page_num": page_num, "text": paragraph_text})
     logger.info(
-        f"Extracted {len(all_tables)} table(s) from {pdf_path} "
-        f"in {time.perf_counter() - start:.2f}s"
+        f"Extracted {len(all_tables)} table(s) and paragraph text from "
+        f"{len(paragraph_pages)} page(s) from {pdf_path} in {time.perf_counter() - start:.2f}s"
     )
-    return all_tables
+    return all_tables, paragraph_pages
 
 
 def group_by_section(all_tables: list[dict]) -> list[dict]:
@@ -201,19 +249,47 @@ def table_to_labeled_text(merged_rows, heading=""):
     return "\n".join(lines)
 
 
+def group_paragraphs_into_sections(paragraph_pages: list[dict], max_chars: int = 1500) -> list[dict]:
+    sections = []
+    for page in paragraph_pages:
+        page_num = page['page_num']
+        remaining = page['text']
+        chunk_idx = 0
+        while remaining:
+            if len(remaining) <= max_chars:
+                chunk, remaining = remaining, ""
+            else:
+                split_at = remaining.rfind("\n\n", 0, max_chars)
+                if split_at <= 0:
+                    split_at = max_chars
+                chunk, remaining = remaining[:split_at].strip(), remaining[split_at:].strip()
+            if not chunk:
+                continue
+            chunk_idx += 1
+            match = SECTION_PATTERN.search(chunk)
+            heading = match.group(1).strip() if match else f"Page {page_num} text"
+            if chunk_idx > 1:
+                heading = f"{heading} (cont.)"
+            sections.append({"heading": heading, "content": chunk, "pages": [page_num]})
+    return sections
+
+
 def build_section_store(pdf_path: str, max_pages: int | None = None) -> list[dict]:
-    all_tables = get_all_tables_with_metadata(pdf_path, max_pages=max_pages)
-    sections = group_by_section(all_tables)
-    logger.info(f"Grouped {len(all_tables)} table(s) into {len(sections)} section(s)")
+    all_tables, paragraph_pages = get_all_tables_with_metadata(pdf_path, max_pages=max_pages)
+    table_sections = group_by_section(all_tables)
+    logger.info(f"Grouped {len(all_tables)} table(s) into {len(table_sections)} section(s)")
+
     store = []
-    for sec_id, sec in enumerate(sections, start=1):
+    sec_id = 0
+    for sec in table_sections:
         merged_rows = []
         for t in sec['tables']:
             merged_rows.extend(t['raw_rows'])
         content = table_to_labeled_text(merged_rows, heading=sec['heading'])
         if not content:
-            logger.info(f"Section {sec_id} ({sec['heading'] or 'untitled'}) produced no content, skipping")
+            logger.info(f"Table section ({sec['heading'] or 'untitled'}) produced no content, skipping")
             continue
+        sec_id += 1
         pages = list(dict.fromkeys(t['page_num'] for t in sec['tables']))
         store.append({
             'id': sec_id,
@@ -221,8 +297,25 @@ def build_section_store(pdf_path: str, max_pages: int | None = None) -> list[dic
             'content': content,
             'pages': pages,
             'tokens': len(content) // 4,
+            'type': 'table',
         })
-    logger.info(f"Built section store with {len(store)} section(s) from {pdf_path}")
+
+    paragraph_sections = group_paragraphs_into_sections(paragraph_pages)
+    for sec in paragraph_sections:
+        sec_id += 1
+        store.append({
+            'id': sec_id,
+            'heading': sec['heading'],
+            'content': sec['content'],
+            'pages': sec['pages'],
+            'tokens': len(sec['content']) // 4,
+            'type': 'paragraph',
+        })
+
+    logger.info(
+        f"Built section store with {len(store)} section(s) "
+        f"({len(store) - len(paragraph_sections)} table, {len(paragraph_sections)} paragraph) from {pdf_path}"
+    )
     return store
 
 
@@ -231,6 +324,10 @@ def tokenize(text: str) -> list[str]:
         w for w in re.findall(r'[a-zA-Z]{3,}', text.lower())
         if w not in STOPWORDS
     ]
+
+
+def content_fingerprint(content: str) -> str:
+    return re.sub(r'\s+', ' ', content).strip().lower()
 
 
 def build_bm25_index(store: list[dict]):
@@ -275,11 +372,20 @@ def bm25_search(
 
     boosted.sort(key=lambda x: -x[0])
     results = []
-    for final_score, raw_score, heading_hit, sec in boosted[:top_k]:
+    seen_content = set()
+    skipped_duplicates = 0
+    for final_score, raw_score, heading_hit, sec in boosted:
+        fingerprint = content_fingerprint(sec['content'])
+        if fingerprint in seen_content:
+            skipped_duplicates += 1
+            continue
+        seen_content.add(fingerprint)
         results.append({**sec, '_score': final_score, '_heading_hit': heading_hit})
+        if len(results) >= top_k:
+            break
 
     logger.info(
         f"Query {query!r}: {len(boosted)} section(s) above min_score={min_score}, "
-        f"returning top {len(results)} (top_k={top_k})"
+        f"skipped {skipped_duplicates} duplicate(s), returning top {len(results)} (top_k={top_k})"
     )
     return results
