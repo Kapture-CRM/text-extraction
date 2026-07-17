@@ -1,3 +1,4 @@
+import re
 import time
 
 import numpy as np
@@ -62,16 +63,23 @@ def semantic_search(
 
     ranked_indices = np.argsort(-scores)
     results = []
+    seen_content = set()
+    skipped_duplicates = 0
     for idx in ranked_indices:
         score = float(scores[idx])
         if score < min_score:
             continue
+        fingerprint = re.sub(r'\s+', ' ', store[idx]['content']).strip().lower()
+        if fingerprint in seen_content:
+            skipped_duplicates += 1
+            continue
+        seen_content.add(fingerprint)
         results.append({**store[idx], "_score": score})
         if len(results) >= top_k:
             break
 
     logger.info(
-        f"Semantic query {query!r}: {len(results)} section(s) returned "
-        f"(top_k={top_k}, min_score={min_score})"
+        f"Semantic query {query!r}: {len(results)} section(s) returned, "
+        f"skipped {skipped_duplicates} duplicate(s) (top_k={top_k}, min_score={min_score})"
     )
     return results

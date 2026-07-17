@@ -1,7 +1,7 @@
 # gunicorn.conf.py
 
 bind = "127.0.0.1:8500"
-workers = 1
+workers = 10
 worker_class = "uvicorn.workers.UvicornWorker"
 timeout = 120
 keepalive = 5

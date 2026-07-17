@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -109,13 +110,13 @@ async def extract_context(
     logger.info(f"Step 1/4: saved {len(contents)} bytes to temp file {tmp_path}")
 
     try:
-        logger.info("Step 2/4: building section store from PDF tables")
-        section_store = build_section_store(tmp_path, max_pages=max_pages)
+        logger.info("Step 2/4: building section store from PDF tables and paragraph text")
+        section_store = await asyncio.to_thread(build_section_store, tmp_path, max_pages=max_pages)
         if not section_store:
-            logger.warning(f"No table-based sections found in {source_name!r}")
+            logger.warning(f"No extractable content found in {source_name!r}")
             raise HTTPException(
                 status_code=422,
-                detail="No table-based sections found in the PDF.",
+                detail="No extractable text or tables found in the PDF.",
             )
 
         if settings.SAVE_EXTRACTED_DATA:
@@ -126,8 +127,9 @@ async def extract_context(
                 logger.warning(f"Failed to save extracted section store: {e}")
 
         logger.info("Step 3/4: building BM25 index and searching")
-        bm25_index, heading_token_sets = build_bm25_index(section_store)
-        results = bm25_search(
+        bm25_index, heading_token_sets = await asyncio.to_thread(build_bm25_index, section_store)
+        results = await asyncio.to_thread(
+            bm25_search,
             query=query,
             bm25=bm25_index,
             store=section_store,
@@ -182,6 +184,7 @@ async def extract_context(
                 "heading_hit": s["_heading_hit"],
                 "tokens": s["tokens"],
                 "content": s["content"],
+                "type": s.get("type", "table"),
             }
             for s in results
         ],
@@ -218,13 +221,13 @@ async def extract_context_semantic(
     logger.info(f"Step 1/4: saved {len(contents)} bytes to temp file {tmp_path}")
 
     try:
-        logger.info("Step 2/4: building section store from PDF tables")
-        section_store = build_section_store(tmp_path, max_pages=max_pages)
+        logger.info("Step 2/4: building section store from PDF tables and paragraph text")
+        section_store = await asyncio.to_thread(build_section_store, tmp_path, max_pages=max_pages)
         if not section_store:
-            logger.warning(f"No table-based sections found in {source_name!r}")
+            logger.warning(f"No extractable content found in {source_name!r}")
             raise HTTPException(
                 status_code=422,
-                detail="No table-based sections found in the PDF.",
+                detail="No extractable text or tables found in the PDF.",
             )
 
         if settings.SAVE_EXTRACTED_DATA:
@@ -235,8 +238,9 @@ async def extract_context_semantic(
                 logger.warning(f"Failed to save extracted section store: {e}")
 
         logger.info("Step 3/4: embedding sections and running semantic search")
-        normalized_embeddings = build_embedding_index(section_store)
-        results = semantic_search(
+        normalized_embeddings = await asyncio.to_thread(build_embedding_index, section_store)
+        results = await asyncio.to_thread(
+            semantic_search,
             query=query,
             store=section_store,
             normalized_embeddings=normalized_embeddings,
@@ -292,6 +296,7 @@ async def extract_context_semantic(
                 "score": round(s["_score"], 4),
                 "tokens": s["tokens"],
                 "content": s["content"],
+                "type": s.get("type", "table"),
             }
             for rank, s in enumerate(results, start=1)
         ],

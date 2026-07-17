@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -204,12 +205,12 @@ async def extract_from_image_async(path: str) -> tuple[list, str]:
 
 
 async def extract_from_pdf_async(path: str) -> tuple[list, str]:
-    if is_scanned_pdf(path):
+    if await asyncio.to_thread(is_scanned_pdf, path):
         return await extract_pdf_via_vision_async(path)
 
     client = get_client()
     parse_start = time.perf_counter()
-    prompt = build_pdf_prompt(extract_pdf_text(path))
+    prompt = build_pdf_prompt(await asyncio.to_thread(extract_pdf_text, path))
     logger.info(f"PDF text extraction took {time.perf_counter() - parse_start:.2f}s")
 
     start = time.perf_counter()
@@ -222,14 +223,17 @@ async def extract_from_pdf_async(path: str) -> tuple[list, str]:
     return _parse_response(response), "pdf_text"
 
 
-async def extract_pdf_via_vision_async(path: str) -> tuple[list, str]:
-    import asyncio
-
-    client = get_client()
-    render_start = time.perf_counter()
+def _render_pdf_pages_to_png(path: str) -> list[bytes]:
     doc = fitz.open(path)
     pages = [page.get_pixmap(matrix=fitz.Matrix(2, 2)).tobytes("png") for page in doc]
     doc.close()
+    return pages
+
+
+async def extract_pdf_via_vision_async(path: str) -> tuple[list, str]:
+    client = get_client()
+    render_start = time.perf_counter()
+    pages = await asyncio.to_thread(_render_pdf_pages_to_png, path)
     logger.info(f"PDF page rendering ({len(pages)} pages) took {time.perf_counter() - render_start:.2f}s")
 
     async def _extract_page(img_bytes: bytes):
