@@ -7,7 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import v1_router
 from app.core.config import settings
 from app.core.logger import get_logger
-from prometheus_fastapi_instrumentator import Instrumentator
 
 logger = get_logger("text-extraction")
 
@@ -66,8 +65,6 @@ def create_app() -> FastAPI:
         return response
 
     app.include_router(v1_router, prefix=settings.API_BASE_PATH)
-
-    Instrumentator().instrument(app).expose(app, endpoint="/internal/metrics", include_in_schema=False)
 
     @app.get(f"{settings.API_BASE_PATH}/health", tags=["Health"])
     def health():
