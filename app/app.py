@@ -50,7 +50,7 @@ def create_app() -> FastAPI:
         client_host = request.client.host if request.client else "unknown"
         query = f"?{request.url.query}" if request.url.query else ""
         start = time.perf_counter()
-        logger.info(f"--> {request.method} {request.url.path}{query} from {client_host}")
+        logger.info(f"--> {request.method} {request.url.path}{query} from {client_host} -> request {request}")
         try:
             response = await call_next(request)
         except Exception:
