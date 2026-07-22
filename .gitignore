@@ -13,6 +13,7 @@ build/
 venv/
 .venv/
 env/
+text_venv/
 
 # Environment variables
 .env
@@ -40,3 +41,5 @@ extracted_data/
 
 CLAUDE.md
 .env
+
+prometheus_multiproc/
