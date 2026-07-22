@@ -1,4 +1,8 @@
 # gunicorn.conf.py
+from prometheus_client import multiprocess
+
+def child_exit(server, worker):
+    multiprocess.mark_process_dead(worker.pid)
 
 bind = "127.0.0.1:8500"
 workers = 10
